@@ -5,9 +5,10 @@ interface Props {
   value: string
   onChange: (v: string) => void
   disabled?: boolean
+  placeholder?: string
 }
 
-export default function PasswordInput({ value, onChange, disabled }: Props) {
+export default function PasswordInput({ value, onChange, disabled, placeholder = 'Enter PDF password' }: Props) {
   const [show, setShow] = useState(false)
 
   return (
@@ -17,7 +18,7 @@ export default function PasswordInput({ value, onChange, disabled }: Props) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        placeholder="Enter PDF password"
+        placeholder={placeholder}
         className="w-full px-4 py-3 pr-12 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-50 bg-white"
       />
       <button

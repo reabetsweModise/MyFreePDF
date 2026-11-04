@@ -1,113 +1,125 @@
 import { useState } from 'react'
-import { Lock } from 'lucide-react'
-import DropZone from './components/DropZone'
-import PasswordInput from './components/PasswordInput'
-import ProgressBar from './components/ProgressBar'
-import ResultCard from './components/ResultCard'
-import { removePdfPassword } from './utils/pdf'
+import { Unlock, Layers, Scissors, Minimize2, Image, RotateCw, Stamp, Shield, ArrowLeft, FileText } from 'lucide-react'
+import RemovePassword from './features/RemovePassword'
+import MergePDF from './features/MergePDF'
+import SplitPDF from './features/SplitPDF'
+import CompressPDF from './features/CompressPDF'
+import PDFToImages from './features/PDFToImages'
+import RotatePages from './features/RotatePages'
+import AddWatermark from './features/AddWatermark'
+import ProtectPDF from './features/ProtectPDF'
 
-type State = 'idle' | 'processing' | 'done' | 'error'
+type ToolId = 'remove-password' | 'merge' | 'split' | 'compress' | 'to-images' | 'rotate' | 'watermark' | 'protect'
 
-export default function App() {
-  const [file, setFile] = useState<File | null>(null)
-  const [password, setPassword] = useState('')
-  const [state, setState] = useState<State>('idle')
-  const [progress, setProgress] = useState(0)
-  const [result, setResult] = useState<Blob | null>(null)
-  const [error, setError] = useState('')
+interface Tool {
+  id: ToolId
+  label: string
+  desc: string
+  icon: React.ElementType
+  bg: string
+  fg: string
+  accent: string
+}
 
-  const handleFile = (f: File) => {
-    setFile(f)
-    setState('idle')
-    setResult(null)
-    setError('')
-  }
+const tools: Tool[] = [
+  { id: 'remove-password', label: 'Remove Password', desc: 'Unlock password-protected PDFs', icon: Unlock, bg: 'bg-indigo-50', fg: 'text-indigo-700', accent: 'bg-indigo-600' },
+  { id: 'merge', label: 'Merge PDFs', desc: 'Combine multiple PDFs into one', icon: Layers, bg: 'bg-blue-50', fg: 'text-blue-700', accent: 'bg-blue-600' },
+  { id: 'split', label: 'Split PDF', desc: 'Extract specific pages', icon: Scissors, bg: 'bg-orange-50', fg: 'text-orange-700', accent: 'bg-orange-500' },
+  { id: 'compress', label: 'Compress PDF', desc: 'Reduce file size', icon: Minimize2, bg: 'bg-green-50', fg: 'text-green-700', accent: 'bg-green-600' },
+  { id: 'to-images', label: 'PDF to Images', desc: 'Export pages as PNG or JPEG', icon: Image, bg: 'bg-cyan-50', fg: 'text-cyan-700', accent: 'bg-cyan-600' },
+  { id: 'rotate', label: 'Rotate Pages', desc: 'Fix page orientation', icon: RotateCw, bg: 'bg-yellow-50', fg: 'text-yellow-700', accent: 'bg-yellow-500' },
+  { id: 'watermark', label: 'Add Watermark', desc: 'Stamp text on all pages', icon: Stamp, bg: 'bg-pink-50', fg: 'text-pink-700', accent: 'bg-pink-500' },
+  { id: 'protect', label: 'Protect PDF', desc: 'Add a password to your PDF', icon: Shield, bg: 'bg-gray-50', fg: 'text-gray-700', accent: 'bg-gray-700' },
+]
 
-  const handleUnlock = async () => {
-    if (!file) return
-    setState('processing')
-    setProgress(0)
-    setError('')
-    try {
-      const blob = await removePdfPassword(file, password, setProgress)
-      setResult(blob)
-      setState('done')
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (msg.toLowerCase().includes('password')) {
-        setError('Incorrect password. Please try again.')
-      } else {
-        setError('Failed to process the PDF. Make sure it is a valid file.')
-      }
-      setState('error')
-    }
-  }
+const featureMap: Record<ToolId, React.ElementType> = {
+  'remove-password': RemovePassword,
+  'merge': MergePDF,
+  'split': SplitPDF,
+  'compress': CompressPDF,
+  'to-images': PDFToImages,
+  'rotate': RotatePages,
+  'watermark': AddWatermark,
+  'protect': ProtectPDF,
+}
 
-  const reset = () => {
-    setFile(null)
-    setPassword('')
-    setState('idle')
-    setResult(null)
-    setError('')
-    setProgress(0)
-  }
-
-  const busy = state === 'processing'
-
+function HomeScreen({ onSelect }: { onSelect: (id: ToolId) => void }) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-10">
-      <div className="w-full max-w-lg">
-        {/* Header */}
-        <div className="flex flex-col items-center mb-8 gap-2">
-          <div className="bg-indigo-600 rounded-2xl p-3">
-            <Lock className="w-7 h-7 text-white" />
+    <div className="min-h-screen px-4 py-10"
+      style={{ paddingLeft: 'max(16px, env(safe-area-inset-left,0px))', paddingRight: 'max(16px, env(safe-area-inset-right,0px))' }}>
+      <div className="max-w-2xl mx-auto">
+        <div className="flex flex-col items-center mb-10 gap-2">
+          <div className="bg-indigo-600 rounded-2xl p-3 mb-1">
+            <FileText className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">MyFreePDF</h1>
-          <p className="text-gray-500 text-sm text-center">
-            Remove password protection from any PDF — 100% private, processed in your browser.
+          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">MyFreePDF</h1>
+          <p className="text-gray-500 text-sm text-center max-w-xs">
+            All your PDF tools in one place — 100% private, processed in your browser.
           </p>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 flex flex-col gap-5">
-          <DropZone onFile={handleFile} disabled={busy} />
-
-          {file && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-indigo-50 rounded-xl">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-indigo-800 truncate">{file.name}</p>
-                <p className="text-xs text-indigo-500">{(file.size / 1024).toFixed(0)} KB</p>
-              </div>
-              <button onClick={reset} className="text-xs text-indigo-400 hover:text-indigo-600">
-                Remove
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {tools.map(tool => {
+            const Icon = tool.icon
+            return (
+              <button key={tool.id} onClick={() => onSelect(tool.id)}
+                className={`${tool.bg} flex items-center gap-4 p-5 rounded-2xl border border-transparent hover:border-gray-200 hover:shadow-sm transition-all text-left group`}>
+                <div className={`${tool.accent} rounded-xl p-2.5 shrink-0`}>
+                  <Icon className="w-5 h-5 text-white" />
+                </div>
+                <div className="min-w-0">
+                  <p className={`font-semibold text-sm ${tool.fg}`}>{tool.label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{tool.desc}</p>
+                </div>
               </button>
-            </div>
-          )}
-
-          <PasswordInput value={password} onChange={setPassword} disabled={busy} />
-
-          {state === 'processing' && <ProgressBar pct={progress} />}
-
-          {error && (
-            <p className="text-sm text-red-600 bg-red-50 rounded-xl px-4 py-3">{error}</p>
-          )}
-
-          {result && file && state === 'done' && (
-            <ResultCard blob={result} originalName={file.name} />
-          )}
-
-          <button
-            onClick={handleUnlock}
-            disabled={!file || busy}
-            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold transition-colors"
-          >
-            {busy ? 'Unlocking…' : 'Remove Password'}
-          </button>
+            )
+          })}
         </div>
 
-        <p className="text-center text-xs text-gray-400 mt-6">
-          Your file never leaves your device.
+        <p className="text-center text-xs text-gray-400 mt-8">
+          Your files never leave your device.
         </p>
       </div>
     </div>
   )
+}
+
+function ToolScreen({ toolId, onBack }: { toolId: ToolId; onBack: () => void }) {
+  const tool = tools.find(t => t.id === toolId)!
+  const Feature = featureMap[toolId]
+  const Icon = tool.icon
+
+  return (
+    <div className="min-h-screen px-4 py-6"
+      style={{ paddingLeft: 'max(16px, env(safe-area-inset-left,0px))', paddingRight: 'max(16px, env(safe-area-inset-right,0px))' }}>
+      <div className="max-w-lg mx-auto">
+        <button onClick={onBack} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-6 transition-colors">
+          <ArrowLeft className="w-4 h-4" /> All tools
+        </button>
+
+        <div className="flex items-center gap-3 mb-6">
+          <div className={`${tool.accent} rounded-xl p-2.5`}>
+            <Icon className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">{tool.label}</h2>
+            <p className="text-xs text-gray-500">{tool.desc}</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6">
+          <Feature />
+        </div>
+
+        <p className="text-center text-xs text-gray-400 mt-6">Your file never leaves your device.</p>
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  const [tool, setTool] = useState<ToolId | null>(null)
+
+  if (!tool) return <HomeScreen onSelect={setTool} />
+  return <ToolScreen toolId={tool} onBack={() => setTool(null)} />
 }
