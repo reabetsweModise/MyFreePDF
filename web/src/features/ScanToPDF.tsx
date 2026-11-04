@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Camera, X, ImageIcon } from 'lucide-react'
+import { Camera, Crop, X, ImageIcon } from 'lucide-react'
 import jsPDF from 'jspdf'
 import ProgressBar from '../components/ProgressBar'
 import ResultCard from '../components/ResultCard'
+import CropEditor from '../components/CropEditor'
 
 interface ScannedPage {
   id: string
@@ -55,60 +56,36 @@ function readFiles(files: FileList): Promise<ScannedPage[]> {
   )
 }
 
-/**
- * Apply scanner-style processing to an image on a canvas.
- * Returns a JPEG data URL.
- */
 function applyScanEffect(img: HTMLImageElement, mode: ScanMode, noisy: boolean): string {
   const canvas = document.createElement('canvas')
-  canvas.width = img.naturalWidth
-  canvas.height = img.naturalHeight
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
   const ctx = canvas.getContext('2d')!
-
-  // White paper background
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.drawImage(img, 0, 0)
-
   const id = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const d = id.data
 
   for (let i = 0; i < d.length; i += 4) {
     const r = d[i], g = d[i + 1], b = d[i + 2]
-
     if (mode === 'document') {
-      // Convert to gray
       let v = 0.299 * r + 0.587 * g + 0.114 * b
-      // Gamma: brightens mid-tones / whites (simulates scanner auto-exposure)
-      v = Math.pow(v / 255, 0.65) * 255
-      // High contrast push — dark text goes dark, white background goes white
-      v = (v - 128) * 2.0 + 128
+      v = Math.pow(v / 255, 0.65) * 255        // gamma: brightens whites
+      v = (v - 128) * 2.0 + 128               // high contrast push
       if (noisy) v += (Math.random() - 0.5) * 10
       v = Math.min(255, Math.max(0, v))
       d[i] = d[i + 1] = d[i + 2] = v
     } else if (mode === 'grayscale') {
       let v = 0.299 * r + 0.587 * g + 0.114 * b
-      // Slight gamma to brighten whites
       v = Math.pow(v / 255, 0.80) * 255
       v = (v - 128) * 1.3 + 128
       if (noisy) v += (Math.random() - 0.5) * 8
       v = Math.min(255, Math.max(0, v))
       d[i] = d[i + 1] = d[i + 2] = v
     } else {
-      // Color: gentle contrast + saturation via per-channel boost
       const avg = (r + g + b) / 3
-      const sat = 1.2 // saturation factor
-      let nr = avg + (r - avg) * sat
-      let ng = avg + (g - avg) * sat
-      let nb = avg + (b - avg) * sat
-      // Contrast
-      nr = (nr - 128) * 1.2 + 128
-      ng = (ng - 128) * 1.2 + 128
-      nb = (nb - 128) * 1.2 + 128
-      if (noisy) {
-        const n = (Math.random() - 0.5) * 6
-        nr += n; ng += n; nb += n
-      }
+      let nr = avg + (r - avg) * 1.2, ng = avg + (g - avg) * 1.2, nb = avg + (b - avg) * 1.2
+      nr = (nr - 128) * 1.2 + 128; ng = (ng - 128) * 1.2 + 128; nb = (nb - 128) * 1.2 + 128
+      if (noisy) { const n = (Math.random() - 0.5) * 6; nr += n; ng += n; nb += n }
       d[i] = Math.min(255, Math.max(0, nr))
       d[i + 1] = Math.min(255, Math.max(0, ng))
       d[i + 2] = Math.min(255, Math.max(0, nb))
@@ -117,12 +94,16 @@ function applyScanEffect(img: HTMLImageElement, mode: ScanMode, noisy: boolean):
   }
 
   ctx.putImageData(id, 0, 0)
-  // JPEG at high quality — scanner output is not transparent
   return canvas.toDataURL('image/jpeg', 0.92)
 }
 
 export default function ScanToPDF() {
   const [pages, setPages] = useState<ScannedPage[]>([])
+  // Queue of images waiting to be cropped (shown one at a time)
+  const [cropQueue, setCropQueue] = useState<ScannedPage[]>([])
+  // A page being re-cropped from thumbnails
+  const [reCropTarget, setReCropTarget] = useState<ScannedPage | null>(null)
+
   const [scanMode, setScanMode] = useState<ScanMode>('document')
   const [noisy, setNoisy] = useState(true)
   const [pageSize, setPageSize] = useState<PageSize>('a4')
@@ -135,7 +116,26 @@ export default function ScanToPDF() {
     if (!files) return
     setResult(null); setError('')
     const newPages = await readFiles(files)
-    setPages(prev => [...prev, ...newPages])
+    // Push all into the crop queue — CropEditor will show for each one
+    setCropQueue(prev => [...prev, ...newPages])
+  }
+
+  // Called when user accepts a crop from the queue
+  const onQueueCropDone = (croppedDataUrl: string) => {
+    const page = cropQueue[0]
+    setPages(prev => [...prev, { ...page, dataUrl: croppedDataUrl }])
+    setCropQueue(prev => prev.slice(1))
+  }
+  // Called when user skips crop for the current queue item
+  const onQueueCropSkip = () => {
+    setPages(prev => [...prev, cropQueue[0]])
+    setCropQueue(prev => prev.slice(1))
+  }
+
+  // Re-crop an existing thumbnail
+  const onReCropDone = (croppedDataUrl: string) => {
+    setPages(prev => prev.map(p => p.id === reCropTarget?.id ? { ...p, dataUrl: croppedDataUrl } : p))
+    setReCropTarget(null)
   }
 
   const remove = (id: string) => { setPages(prev => prev.filter(p => p.id !== id)); setResult(null) }
@@ -164,25 +164,14 @@ export default function ScanToPDF() {
         }
 
         if (!doc) {
-          doc = new jsPDF({
-            orientation: isLandscape ? 'landscape' : 'portrait',
-            unit: 'pt',
-            format: [ptW, ptH],
-            compress: true,
-          })
+          doc = new jsPDF({ orientation: isLandscape ? 'landscape' : 'portrait', unit: 'pt', format: [ptW, ptH], compress: true })
         } else {
           doc.addPage([ptW, ptH])
         }
 
-        // Apply scanner effect via canvas
         const processed = applyScanEffect(img, scanMode, noisy)
-
-        // Scale to fill page proportionally
         const scale = Math.min(ptW / iw, ptH / ih)
-        const dw = iw * scale, dh = ih * scale
-        const x = (ptW - dw) / 2, y = (ptH - dh) / 2
-
-        doc.addImage(processed, 'JPEG', x, y, dw, dh)
+        doc.addImage(processed, 'JPEG', (ptW - iw * scale) / 2, (ptH - ih * scale) / 2, iw * scale, ih * scale)
         setProgress(Math.round(((i + 1) / pages.length) * 100))
       }
 
@@ -194,6 +183,18 @@ export default function ScanToPDF() {
   }
 
   const currentMode = MODES.find(m => m.id === scanMode)!
+
+  // Show crop editor for queue or re-crop
+  const activeCrop = reCropTarget ?? (cropQueue.length > 0 ? cropQueue[0] : null)
+  if (activeCrop) {
+    return (
+      <CropEditor
+        dataUrl={activeCrop.dataUrl}
+        onDone={reCropTarget ? onReCropDone : onQueueCropDone}
+        onCancel={reCropTarget ? () => setReCropTarget(null) : onQueueCropSkip}
+      />
+    )
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -213,7 +214,7 @@ export default function ScanToPDF() {
         </label>
       </div>
 
-      {/* Scan mode selector */}
+      {/* Scan mode */}
       <div className="flex flex-col gap-2">
         <p className="text-xs font-semibold text-gray-500">Scan type</p>
         <div className="flex gap-2">
@@ -228,11 +229,10 @@ export default function ScanToPDF() {
         <p className="text-xs text-gray-400">{currentMode.desc}</p>
       </div>
 
-      {/* Options row */}
+      {/* Options */}
       <div className="flex gap-3 items-center">
-        <label className="flex items-center gap-2 cursor-pointer select-none flex-1">
-          <div onClick={() => setNoisy(v => !v)}
-            className={`w-9 h-5 rounded-full transition-colors ${noisy ? 'bg-violet-500' : 'bg-gray-200'} relative`}>
+        <label className="flex items-center gap-2 cursor-pointer select-none flex-1" onClick={() => setNoisy(v => !v)}>
+          <div className={`w-9 h-5 rounded-full transition-colors ${noisy ? 'bg-violet-500' : 'bg-gray-200'} relative`}>
             <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${noisy ? 'translate-x-4' : 'translate-x-0.5'}`} />
           </div>
           <span className="text-xs text-gray-600">Scanner grain</span>
@@ -248,7 +248,7 @@ export default function ScanToPDF() {
         </div>
       </div>
 
-      {/* Page thumbnails with live CSS preview of scan effect */}
+      {/* Page thumbnails — with crop re-edit button */}
       {pages.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
           {pages.map((p, i) => (
@@ -259,6 +259,12 @@ export default function ScanToPDF() {
               <span className="absolute top-1 left-1 bg-black/50 text-white text-xs font-bold px-1.5 py-0.5 rounded">
                 {i + 1}
               </span>
+              {/* Re-crop button */}
+              <button onClick={() => setReCropTarget(p)}
+                className="absolute bottom-1 left-1 bg-black/60 hover:bg-violet-700 text-white rounded-lg w-6 h-6 flex items-center justify-center transition-colors">
+                <Crop className="w-3.5 h-3.5" />
+              </button>
+              {/* Remove button */}
               <button onClick={() => remove(p.id)}
                 className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center transition-colors">
                 <X className="w-3 h-3" />
@@ -278,7 +284,7 @@ export default function ScanToPDF() {
       </button>
 
       {pages.length === 0 && (
-        <p className="text-xs text-center text-gray-400">Take a photo or pick images from your gallery</p>
+        <p className="text-xs text-center text-gray-400">Take a photo or pick images — crop editor opens automatically</p>
       )}
     </div>
   )
