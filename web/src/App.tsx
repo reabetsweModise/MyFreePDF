@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Unlock, Layers, Scissors, Minimize2, Image, RotateCw, Stamp, Shield, Camera, ArrowLeft, FileText } from 'lucide-react'
+import { Unlock, Layers, Scissors, Minimize2, Image, RotateCw, Stamp, Shield, Camera, PenLine, ArrowLeft, FileText } from 'lucide-react'
 import RemovePassword from './features/RemovePassword'
 import MergePDF from './features/MergePDF'
 import SplitPDF from './features/SplitPDF'
@@ -9,8 +9,9 @@ import RotatePages from './features/RotatePages'
 import AddWatermark from './features/AddWatermark'
 import ProtectPDF from './features/ProtectPDF'
 import ScanToPDF from './features/ScanToPDF'
+import FillAndSign from './features/FillAndSign'
 
-type ToolId = 'remove-password' | 'merge' | 'split' | 'compress' | 'to-images' | 'rotate' | 'watermark' | 'protect' | 'scan'
+type ToolId = 'remove-password' | 'merge' | 'split' | 'compress' | 'to-images' | 'rotate' | 'watermark' | 'protect' | 'scan' | 'fill-sign'
 
 interface Tool {
   id: ToolId
@@ -32,6 +33,7 @@ const tools: Tool[] = [
   { id: 'watermark', label: 'Add Watermark', desc: 'Stamp text on all pages', icon: Stamp, bg: 'bg-pink-50', fg: 'text-pink-700', accent: 'bg-pink-500' },
   { id: 'protect', label: 'Protect PDF', desc: 'Add a password to your PDF', icon: Shield, bg: 'bg-gray-50', fg: 'text-gray-700', accent: 'bg-gray-700' },
   { id: 'scan', label: 'Scan to PDF', desc: 'Take a photo and convert to PDF', icon: Camera, bg: 'bg-violet-50', fg: 'text-violet-700', accent: 'bg-violet-600' },
+  { id: 'fill-sign', label: 'Fill & Sign', desc: 'Fill form fields and sign your PDF', icon: PenLine, bg: 'bg-teal-50', fg: 'text-teal-700', accent: 'bg-teal-600' },
 ]
 
 const featureMap: Record<ToolId, React.ElementType> = {
@@ -44,6 +46,7 @@ const featureMap: Record<ToolId, React.ElementType> = {
   'watermark': AddWatermark,
   'protect': ProtectPDF,
   'scan': ScanToPDF,
+  'fill-sign': FillAndSign,
 }
 
 function HomeScreen({ onSelect }: { onSelect: (id: ToolId) => void }) {
